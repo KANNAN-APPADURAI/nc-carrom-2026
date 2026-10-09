@@ -1,0 +1,21 @@
+# secrets - never commit the Neon connection string
+backend/.env
+
+# python
+backend/.venv/
+__pycache__/
+*.pyc
+
+# local fallback database
+backend/data/
+
+# node
+frontend/node_modules/
+frontend/dist/
+frontend/.env
+
+# editors / os
+.vscode/
+.idea/
+Thumbs.db
+.DS_Store
