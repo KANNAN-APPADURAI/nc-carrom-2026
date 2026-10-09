@@ -56,6 +56,43 @@ Then open **http://localhost:5173**.
 
 ---
 
+## Signing in
+
+The site is organiser-only: there is **no sign-up**, no user table and no
+password reset. The one account lives in `backend\.env`:
+
+```ini
+AUTH_USERNAME=admin
+AUTH_PASSWORD=carrom2026          # ← change this before the event
+SESSION_SECRET=<long random string>
+SESSION_HOURS=12
+```
+
+> **The password above is a placeholder that was filled in for you.** Change it
+> in `backend\.env` and restart the API.
+
+A correct sign-in returns a signed token that the browser keeps in
+`localStorage`, so a refresh doesn't sign you out. It lasts `SESSION_HOURS`
+(default 12 — long enough for an evening) and renews itself each time the app
+loads. **Sign out** is at the top right.
+
+`SESSION_SECRET` signs those tokens. Leave it blank and a new one is generated
+each time the API starts, which signs everyone out on every restart — fine for
+testing, annoying mid-event. A fresh one:
+
+```powershell
+cd backend; .\.venv\Scripts\python.exe -c "import secrets; print(secrets.token_hex(32))"
+```
+
+Everything except `/api/health` and `/api/login` needs a valid token, so the
+data can't be read or changed by anyone who just knows the URL. Five wrong
+passwords in a row locks that machine out for a minute.
+
+Leaving `AUTH_USERNAME` or `AUTH_PASSWORD` blank switches sign-in **off** — the
+API warns loudly on startup and the site footer says `sign-in off`.
+
+---
+
 ## On the day
 
 ### 1. Teams — type the lots in as they come out
@@ -168,12 +205,15 @@ nc-carrom-2026/
 ├── backend/               FastAPI
 │   ├── app/domain.py      group draw, round robin, standings
 │   ├── app/store.py       Neon / Supabase / local-JSON stores
+│   ├── app/auth.py        sign-in, session tokens, lockout
 │   ├── app/main.py        the API
 │   └── .env.example
 └── frontend/              React + Vite
     ├── src/App.jsx
+    ├── src/auth.js        the stored session
     ├── src/styles.css     the whole look
     └── src/components/
+        ├── SignIn.jsx         the sign-in card
         ├── TeamsPanel.jsx     entering the lots
         ├── DrawPanel.jsx      the group draw + reveal
         ├── GroupsPanel.jsx    standings
@@ -189,14 +229,18 @@ guess what changed.
 
 ### API
 
-| Method | Path | Does |
-| ------ | ---- | ---- |
-| `GET` | `/api/health` | Which store is live |
-| `GET` | `/api/state` | Teams, groups, fixtures, standings |
-| `PUT` | `/api/teams` | Save the team list (clears any existing draw) |
-| `POST` | `/api/draw` | Draw the groups, optional `{"seed": "..."}` |
-| `DELETE` | `/api/draw` | Undo the draw, keep the teams |
-| `PATCH` | `/api/matches/{id}` | Save or clear a result |
+| Method | Path | Auth | Does |
+| ------ | ---- | ---- | ---- |
+| `GET` | `/api/health` | public | Which store is live, and whether sign-in is on |
+| `POST` | `/api/login` | public | Swap the credentials for a session token |
+| `GET` | `/api/session` | token | Check a stored token and slide its expiry on |
+| `GET` | `/api/state` | token | Teams, groups, fixtures, standings |
+| `PUT` | `/api/teams` | token | Save the team list (clears any existing draw) |
+| `POST` | `/api/draw` | token | Draw the groups, optional `{"seed": "..."}` |
+| `DELETE` | `/api/draw` | token | Undo the draw, keep the teams |
+| `PATCH` | `/api/matches/{id}` | token | Save or clear a result |
+
+Send the token as `Authorization: Bearer <token>`.
 
 Interactive docs while the API runs: **http://127.0.0.1:8000/docs**
 

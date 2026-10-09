@@ -4,12 +4,19 @@ from __future__ import annotations
 
 from typing import Any
 
-from fastapi import FastAPI, HTTPException
+from fastapi import Depends, FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 
-from . import config
+from . import auth, config
 from .domain import GROUPS, build_groups, now_iso, run_group_draw
-from .schemas import DrawPayload, ResultPayload, TeamsPayload, TournamentState
+from .schemas import (
+    DrawPayload,
+    LoginPayload,
+    ResultPayload,
+    Session,
+    TeamsPayload,
+    TournamentState,
+)
 from .store import get_store
 
 app = FastAPI(
@@ -56,21 +63,56 @@ def present(raw: dict[str, Any]) -> dict[str, Any]:
 
 @app.get("/api/health")
 def health() -> dict[str, Any]:
+    """Public: the sign-in screen needs this before anyone is signed in."""
     return {
         "ok": True,
         "storage": get_store().name,
         "tournament": config.TOURNAMENT_SLUG,
+        "auth_required": config.auth_enabled(),
         "groups": [{"code": code, "name": name} for code, name in GROUPS],
     }
 
 
+@app.post("/api/login", response_model=Session)
+def login(payload: LoginPayload, request: Request) -> dict[str, Any]:
+    """Public: exchange the organiser credentials for a session token."""
+    if not config.auth_enabled():
+        raise HTTPException(
+            status_code=400,
+            detail="Sign-in is not configured on this server.",
+        )
+
+    client = request.client.host if request.client else "unknown"
+    wait = auth.seconds_locked_out(client)
+    if wait:
+        raise HTTPException(
+            status_code=429,
+            detail=f"Too many failed attempts. Try again in {wait} seconds.",
+        )
+
+    if not auth.check_credentials(payload.username, payload.password):
+        auth.record_failure(client)
+        raise HTTPException(status_code=401, detail="Wrong username or password.")
+
+    auth.clear_failures(client)
+    token, expires_at = auth.issue_token(payload.username.strip())
+    return {"token": token, "username": payload.username.strip(), "expires_at": expires_at}
+
+
+@app.get("/api/session", response_model=Session)
+def session(user: str = Depends(auth.require_auth)) -> dict[str, Any]:
+    """Confirm a stored token is still good, and slide the expiry forward."""
+    token, expires_at = auth.issue_token(user)
+    return {"token": token, "username": user, "expires_at": expires_at}
+
+
 @app.get("/api/state", response_model=TournamentState)
-def get_state() -> dict[str, Any]:
+def get_state(user: str = Depends(auth.require_auth)) -> dict[str, Any]:
     return present(get_store().load())
 
 
 @app.put("/api/teams", response_model=TournamentState)
-def put_teams(payload: TeamsPayload) -> dict[str, Any]:
+def put_teams(payload: TeamsPayload, user: str = Depends(auth.require_auth)) -> dict[str, Any]:
     pairs = [(team.player1, team.player2) for team in payload.teams]
 
     names = [name for pair in pairs for name in pair]
@@ -99,7 +141,9 @@ def put_teams(payload: TeamsPayload) -> dict[str, Any]:
 
 
 @app.post("/api/draw", response_model=TournamentState)
-def post_draw(payload: DrawPayload | None = None) -> dict[str, Any]:
+def post_draw(
+    payload: DrawPayload | None = None, user: str = Depends(auth.require_auth)
+) -> dict[str, Any]:
     store = get_store()
     raw = store.load()
     teams = raw.get("teams") or []
@@ -118,13 +162,15 @@ def post_draw(payload: DrawPayload | None = None) -> dict[str, Any]:
 
 
 @app.delete("/api/draw", response_model=TournamentState)
-def delete_draw() -> dict[str, Any]:
+def delete_draw(user: str = Depends(auth.require_auth)) -> dict[str, Any]:
     """Undo the group draw. The entered teams stay exactly as they are."""
     return present(get_store().clear_draw())
 
 
 @app.patch("/api/matches/{match_id}", response_model=TournamentState)
-def patch_match(match_id: str, payload: ResultPayload) -> dict[str, Any]:
+def patch_match(
+    match_id: str, payload: ResultPayload, user: str = Depends(auth.require_auth)
+) -> dict[str, Any]:
     boards_a, boards_b = payload.boards_a, payload.boards_b
     if (boards_a is None) != (boards_b is None):
         raise HTTPException(

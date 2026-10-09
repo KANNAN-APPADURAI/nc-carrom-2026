@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { api } from './api'
+import { clearSession, readSession, saveSession } from './auth'
 import Header from './components/Header.jsx'
+import SignIn from './components/SignIn.jsx'
 import TeamsPanel from './components/TeamsPanel.jsx'
 import DrawPanel from './components/DrawPanel.jsx'
 import GroupsPanel from './components/GroupsPanel.jsx'
@@ -16,6 +18,8 @@ const TABS = [
 
 export default function App() {
   const [state, setState] = useState(null)
+  const [session, setSession] = useState(() => readSession())
+  const [authRequired, setAuthRequired] = useState(true)
   const [tab, setTab] = useState('teams')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
@@ -24,20 +28,59 @@ export default function App() {
 
   const notify = useCallback((text, kind = 'info') => setToast({ text, kind, at: Date.now() }), [])
 
-  const load = useCallback(async () => {
+  const signOut = useCallback(
+    (message) => {
+      clearSession()
+      setSession(null)
+      setState(null)
+      if (message) notify(message, 'info')
+    },
+    [notify],
+  )
+
+  const boot = useCallback(async () => {
+    setLoading(true)
     try {
-      setState(await api.getState())
+      const health = await api.health()
+      setAuthRequired(health.auth_required)
       setFatal(null)
+
+      if (health.auth_required && !readSession()) {
+        setSession(null)
+        return
+      }
+
+      setState(await api.getState())
     } catch (error) {
-      setFatal(error.message)
+      if (error.status === 401) {
+        clearSession()
+        setSession(null)
+      } else {
+        setFatal(error.message)
+      }
     } finally {
       setLoading(false)
     }
   }, [])
 
   useEffect(() => {
-    load()
-  }, [load])
+    boot()
+  }, [boot])
+
+  const handleSignIn = useCallback(async (username, password) => {
+    try {
+      const next = await api.signIn(username, password)
+      saveSession(next)
+      setSession(next)
+      setLoading(true)
+      setState(await api.getState())
+      setLoading(false)
+      return null
+    } catch (error) {
+      setLoading(false)
+      return error.message // shown on the sign-in card
+    }
+  }, [])
 
   // Every mutating call returns the full tournament state, so one helper
   // covers saving teams, drawing, resetting and entering results.
@@ -51,16 +94,21 @@ export default function App() {
         if (successText && !quiet) notify(successText, 'success')
         return next
       } catch (error) {
-        notify(error.message, 'error')
+        if (error.status === 401) signOut('Your session ended. Sign in again.')
+        else notify(error.message, 'error')
         return null
       } finally {
         if (!quiet) setBusy(false)
       }
     },
-    [notify],
+    [notify, signOut],
   )
 
   const hasDraw = Boolean(state?.draw && state.matches?.length)
+
+  if (authRequired && !session && !loading && !fatal) {
+    return <SignIn onSignIn={handleSignIn} />
+  }
 
   if (loading) {
     return (
@@ -83,7 +131,7 @@ export default function App() {
           cd nc-carrom-2026\backend{'\n'}
           .\.venv\Scripts\python.exe -m uvicorn app.main:app --port 8000
         </pre>
-        <button className="btn btn--primary" onClick={load}>
+        <button className="btn btn--primary" onClick={boot}>
           Try again
         </button>
       </div>
@@ -93,6 +141,19 @@ export default function App() {
   return (
     <div className="app">
       <div className="app__glow" aria-hidden="true" />
+
+      {authRequired && session && (
+        <div className="sessionbar">
+          <span className="sessionbar__who">
+            <span className="sessionbar__dot" aria-hidden="true" />
+            Signed in as <strong>{session.username}</strong>
+          </span>
+          <button className="btn btn--ghost btn--sm" onClick={() => signOut('Signed out.')}>
+            Sign out
+          </button>
+        </div>
+      )}
+
       <Header state={state} />
 
       <nav className="tabs" aria-label="Sections">
@@ -163,6 +224,7 @@ export default function App() {
         <span>
           nCompass Carrom Tournament 2026 · storage:{' '}
           <strong>{state?.storage === 'postgres' ? 'Neon' : state?.storage}</strong>
+          {!authRequired && ' · sign-in off'}
         </span>
       </footer>
 

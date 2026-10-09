@@ -34,13 +34,26 @@ if (-not (Test-Path (Join-Path $frontend 'node_modules'))) {
   Pop-Location
 }
 
-# --- database reminder ----------------------------------------------------
+# --- configuration reminders ----------------------------------------------
 $envFile = Join-Path $backend '.env'
 if (-not (Test-Path $envFile)) {
   Write-Host ''
-  Write-Host '  No backend\.env found - running on the local JSON file.' -ForegroundColor DarkYellow
-  Write-Host '  To use your Neon database: copy backend\.env.example to' -ForegroundColor DarkYellow
-  Write-Host '  backend\.env and paste your connection string into DATABASE_URL.' -ForegroundColor DarkYellow
+  Write-Host '  No backend\.env found - running on the local JSON file, with no sign-in.' -ForegroundColor DarkYellow
+  Write-Host '  Copy backend\.env.example to backend\.env, then fill in DATABASE_URL' -ForegroundColor DarkYellow
+  Write-Host '  and AUTH_USERNAME / AUTH_PASSWORD.' -ForegroundColor DarkYellow
+} else {
+  $envText = Get-Content $envFile
+  $userLine = $envText | Where-Object { $_ -match '^\s*AUTH_USERNAME\s*=\s*\S' }
+  $passLine = $envText | Where-Object { $_ -match '^\s*AUTH_PASSWORD\s*=\s*\S' }
+  if (-not $userLine -or -not $passLine) {
+    Write-Host ''
+    Write-Host '  AUTH_USERNAME / AUTH_PASSWORD are not both set in backend\.env -' -ForegroundColor DarkYellow
+    Write-Host '  the site will open with NO sign-in.' -ForegroundColor DarkYellow
+  } elseif ($passLine -match 'change-me|carrom2026') {
+    Write-Host ''
+    Write-Host '  Reminder: AUTH_PASSWORD in backend\.env is still the placeholder.' -ForegroundColor DarkYellow
+    Write-Host '  Change it before the event.' -ForegroundColor DarkYellow
+  }
 }
 
 # --- start both services --------------------------------------------------

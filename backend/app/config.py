@@ -27,6 +27,21 @@ SUPABASE_SERVICE_KEY = os.getenv("SUPABASE_SERVICE_KEY", "").strip()
 
 LOCAL_DB_PATH = BASE_DIR / "data" / "tournament.json"
 
+# --- sign-in ---------------------------------------------------------------
+# One organiser credential, straight from the environment. Sign-in is active
+# only when both are set; otherwise the API stays open and says so on startup.
+AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
+AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
+
+# Signs the session tokens. Leave it unset and a random one is made per
+# process, which signs everyone out whenever the API restarts.
+SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
+
+try:
+    SESSION_HOURS = max(1, int(os.getenv("SESSION_HOURS", "12")))
+except ValueError:
+    SESSION_HOURS = 12
+
 CORS_ORIGINS = [
     origin.strip()
     for origin in os.getenv(
@@ -39,6 +54,10 @@ CORS_ORIGINS = [
 # The draw still works for a smaller turnout - groups simply end up uneven.
 TARGET_TEAMS = 25
 MIN_TEAMS = 10
+
+
+def auth_enabled() -> bool:
+    return bool(AUTH_USERNAME and AUTH_PASSWORD)
 
 
 def postgres_enabled() -> bool:

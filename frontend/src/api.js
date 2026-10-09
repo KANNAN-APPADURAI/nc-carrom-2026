@@ -1,15 +1,27 @@
+import { getToken } from './auth'
+
 const BASE = (import.meta.env.VITE_API_URL ?? '/api').replace(/\/$/, '')
 
-async function request(path, { method = 'GET', body } = {}) {
+async function request(path, { method = 'GET', body, authed = true } = {}) {
+  const headers = {}
+  if (body) headers['Content-Type'] = 'application/json'
+
+  const token = authed ? getToken() : null
+  if (token) headers.Authorization = `Bearer ${token}`
+
   let response
   try {
     response = await fetch(`${BASE}${path}`, {
       method,
-      headers: body ? { 'Content-Type': 'application/json' } : undefined,
+      headers,
       body: body ? JSON.stringify(body) : undefined,
     })
   } catch {
-    throw new Error('Cannot reach the tournament service. Is the FastAPI backend running on :8000?')
+    const error = new Error(
+      'Cannot reach the tournament service. Is the FastAPI backend running on :8000?',
+    )
+    error.status = 0
+    throw error
   }
 
   if (!response.ok) {
@@ -21,13 +33,20 @@ async function request(path, { method = 'GET', body } = {}) {
     } catch {
       /* keep the generic message */
     }
-    throw new Error(detail)
+    const error = new Error(detail)
+    error.status = response.status
+    throw error
   }
 
   return response.json()
 }
 
 export const api = {
+  health: () => request('/health', { authed: false }),
+  signIn: (username, password) =>
+    request('/login', { method: 'POST', body: { username, password }, authed: false }),
+  session: () => request('/session'),
+
   getState: () => request('/state'),
   /** teams: [{ player1, player2 }] - replaces the whole list. */
   saveTeams: (teams) => request('/teams', { method: 'PUT', body: { teams } }),

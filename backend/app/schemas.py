@@ -11,6 +11,17 @@ def _clean_name(value: Any) -> str:
     return " ".join(str(value).split())[:60]
 
 
+class LoginPayload(BaseModel):
+    username: str = Field(max_length=120)
+    password: str = Field(max_length=200)
+
+
+class Session(BaseModel):
+    token: str
+    username: str
+    expires_at: int
+
+
 class TeamInput(BaseModel):
     """One finished pair, as drawn on the paper lots."""
 
