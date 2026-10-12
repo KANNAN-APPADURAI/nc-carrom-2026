@@ -19,6 +19,7 @@ class LoginPayload(BaseModel):
 class Session(BaseModel):
     token: str
     username: str
+    role: str = "admin"
     expires_at: int
 
 
@@ -52,9 +53,20 @@ class DrawPayload(BaseModel):
         return seed.strip().upper() or None
 
 
+class SuperSixPayload(DrawPayload):
+    """Same shape as the league draw: an optional announceable seed."""
+
+
 class ResultPayload(BaseModel):
-    boards_a: int | None = Field(default=None, ge=0, le=9)
-    boards_b: int | None = Field(default=None, ge=0, le=9)
+    """What the organiser saw at the board.
+
+    ``winner_team_id`` of None clears the result. ``coins`` has no cap worth
+    hitting - the bound only stops a stray keypress becoming a four-figure PD.
+    """
+
+    winner_team_id: str | None = None
+    coins: int | None = Field(default=None, ge=0, le=9999)
+    red_to_winner: bool = False
 
 
 class Team(BaseModel):
@@ -65,6 +77,9 @@ class Team(BaseModel):
     group_code: str | None = None
     position: int | None = None
     code: str | None = None
+    super_group_code: str | None = None
+    super_position: int | None = None
+    super_origin: str | None = None
 
 
 class Match(BaseModel):
@@ -74,8 +89,9 @@ class Match(BaseModel):
     round: int
     team_a_id: str
     team_b_id: str
-    boards_a: int | None = None
-    boards_b: int | None = None
+    winner_team_id: str | None = None
+    coins: int | None = None
+    red_to_winner: bool = False
     played: bool = False
 
 
@@ -88,10 +104,14 @@ class TournamentState(BaseModel):
     title: str
     subtitle: str
     storage: str
-    target_teams: int
-    min_teams: int
+    role: str
+    can_edit: bool
+    stage: str
+    stage_label: str
+    stages: list[dict[str, Any]]
     teams: list[Team]
-    matches: list[Match]
-    groups: list[dict[str, Any]]
+    league: dict[str, Any]
+    super_six: dict[str, Any]
+    playoffs: dict[str, Any]
     draw: DrawInfo | None = None
     stats: dict[str, int]

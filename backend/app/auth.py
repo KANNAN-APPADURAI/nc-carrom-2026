@@ -18,7 +18,7 @@ import logging
 import secrets
 import time
 
-from fastapi import Header, HTTPException
+from fastapi import Depends, Header, HTTPException
 
 from . import config
 
@@ -58,15 +58,21 @@ def _sign(payload: str) -> str:
     return _b64encode(digest)
 
 
-def issue_token(username: str) -> tuple[str, int]:
-    """Return (token, unix expiry)."""
+ADMIN = "admin"
+VIEWER = "viewer"
+
+
+def issue_token(username: str, role: str = ADMIN) -> tuple[str, int]:
+    """Return (token, unix expiry). The role rides along, signed."""
     expires_at = int(time.time()) + config.SESSION_HOURS * 3600
-    payload = _b64encode(json.dumps({"u": username, "exp": expires_at}).encode())
+    payload = _b64encode(
+        json.dumps({"u": username, "r": role, "exp": expires_at}).encode()
+    )
     return f"{payload}.{_sign(payload)}", expires_at
 
 
-def verify_token(token: str) -> str | None:
-    """Return the username if the token is genuine and unexpired, else None."""
+def verify_token(token: str) -> dict[str, str] | None:
+    """Return {username, role} if the token is genuine and unexpired."""
     if not token or token.count(".") != 1:
         return None
     payload, signature = token.split(".", 1)
@@ -79,7 +85,12 @@ def verify_token(token: str) -> str | None:
     if not isinstance(data, dict) or int(data.get("exp", 0)) < time.time():
         return None
     username = data.get("u")
-    return username if isinstance(username, str) else None
+    if not isinstance(username, str):
+        return None
+    # Tokens issued before viewers existed carry no role; only the organiser
+    # could ever have held one, so they stay organiser tokens.
+    role = data.get("r") if data.get("r") in (ADMIN, VIEWER) else ADMIN
+    return {"username": username, "role": role}
 
 
 def _recent_failures(client: str) -> list[float]:
@@ -109,29 +120,53 @@ def clear_failures(client: str) -> None:
     _failures.pop(client, None)
 
 
-def check_credentials(username: str, password: str) -> bool:
+def _matches(given_user: str, given_password: str, user: str, password: str) -> bool:
     """Constant-time comparison, so a wrong username and a wrong password take
     the same time to reject."""
-    user_ok = hmac.compare_digest(username.strip(), config.AUTH_USERNAME)
-    password_ok = hmac.compare_digest(password, config.AUTH_PASSWORD)
+    user_ok = hmac.compare_digest(given_user, user)
+    password_ok = hmac.compare_digest(given_password, password)
     return user_ok and password_ok
 
 
-def require_auth(authorization: str | None = Header(default=None)) -> str:
-    """FastAPI dependency guarding every endpoint that is not public."""
+def authenticate(username: str, password: str) -> str | None:
+    """Return the role these credentials earn, or None."""
+    username = username.strip()
+    if _matches(username, password, config.AUTH_USERNAME, config.AUTH_PASSWORD):
+        return ADMIN
+    if config.viewer_enabled() and _matches(
+        username, password, config.VIEWER_USERNAME, config.VIEWER_PASSWORD
+    ):
+        return VIEWER
+    return None
+
+
+def require_auth(authorization: str | None = Header(default=None)) -> dict[str, str]:
+    """Guards every endpoint that is not public. Viewers get through here."""
     if not config.auth_enabled():
-        return "open"
+        return {"username": "open", "role": ADMIN}
 
     token = ""
     if authorization:
         scheme, _, value = authorization.partition(" ")
         token = value.strip() if scheme.lower() == "bearer" else authorization.strip()
 
-    username = verify_token(token)
-    if not username:
+    principal = verify_token(token)
+    if not principal:
         raise HTTPException(
             status_code=401,
             detail="Your session has ended. Sign in again to continue.",
             headers={"WWW-Authenticate": "Bearer"},
         )
-    return username
+    return principal
+
+
+def require_editor(
+    principal: dict[str, str] = Depends(require_auth),
+) -> dict[str, str]:
+    """Guards everything that writes. A viewer is turned away with a 403."""
+    if principal.get("role") == VIEWER:
+        raise HTTPException(
+            status_code=403,
+            detail="You are signed in as a viewer. Only the organiser can change results.",
+        )
+    return principal

@@ -40,7 +40,9 @@ export default function SignIn({ onSignIn }) {
         <h1 className="signin__title">
           NC Carrom <span>2026</span>
         </h1>
-        <p className="signin__sub">Organisers only — sign in to run the draw.</p>
+        <p className="signin__sub">
+          Sign in to follow the tournament. Organisers can enter results; everyone else watches.
+        </p>
 
         <label className="signin__field">
           <span>Username</span>

@@ -35,3 +35,5 @@ export function clearSession() {
 }
 
 export const getToken = () => readSession()?.token ?? null
+
+export const isViewer = () => readSession()?.role === 'viewer'

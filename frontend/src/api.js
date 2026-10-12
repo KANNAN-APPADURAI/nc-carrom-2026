@@ -48,13 +48,20 @@ export const api = {
   session: () => request('/session'),
 
   getState: () => request('/state'),
-  /** teams: [{ player1, player2 }] - replaces the whole list. */
-  saveTeams: (teams) => request('/teams', { method: 'PUT', body: { teams } }),
-  runDraw: (seed) => request('/draw', { method: 'POST', body: { seed: seed || null } }),
-  clearDraw: () => request('/draw', { method: 'DELETE' }),
-  saveResult: (matchId, boardsA, boardsB) =>
+
+  // The teams and the league draw are settled; the API refuses to change them.
+  drawSuperSix: (seed) =>
+    request('/stage/super-six', { method: 'POST', body: { seed: seed || null } }),
+  openPlayoffs: () => request('/stage/playoffs', { method: 'POST' }),
+  rollbackStage: () => request('/stage/rollback', { method: 'POST' }),
+  /** winnerTeamId of null clears the result. */
+  saveResult: (matchId, winnerTeamId, coins, redToWinner) =>
     request(`/matches/${matchId}`, {
       method: 'PATCH',
-      body: { boards_a: boardsA, boards_b: boardsB },
+      body: {
+        winner_team_id: winnerTeamId,
+        coins: coins,
+        red_to_winner: Boolean(redToWinner),
+      },
     }),
 }

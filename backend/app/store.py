@@ -1,4 +1,4 @@
-"""Persistence.
+﻿"""Persistence.
 
 Three interchangeable stores behind one interface, picked by what is
 configured in the environment:
@@ -22,7 +22,7 @@ from typing import Any
 
 from . import config
 
-EMPTY: dict[str, Any] = {"teams": [], "matches": [], "draw": None}
+EMPTY: dict[str, Any] = {"teams": [], "matches": [], "draw": None, "stage": "league", "super_six_seed": None}
 
 TEAM_COLUMNS = (
     "id",
@@ -32,16 +32,22 @@ TEAM_COLUMNS = (
     "group_code",
     "position",
     "code",
+    "super_group_code",
+    "super_position",
+    "super_origin",
 )
 MATCH_COLUMNS = (
     "id",
     "match_no",
+    "stage",
+    "slot",
     "group_code",
     "round",
     "team_a_id",
     "team_b_id",
-    "boards_a",
-    "boards_b",
+    "winner_team_id",
+    "coins",
+    "red_to_winner",
     "played",
 )
 
@@ -79,19 +85,21 @@ class PostgresStore:
 
     TEAM_SELECT = """
         select id::text as id, entry_no, player1_name, player2_name,
-               group_code, "position", code
+               group_code, "position", code,
+               super_group_code, super_position, super_origin
           from carrom_teams
          where tournament = %s
          order by entry_no
     """
     MATCH_SELECT = """
-        select id::text as id, match_no, group_code, "round",
+        select id::text as id, match_no, stage, slot, group_code, "round",
                team_a_id::text as team_a_id, team_b_id::text as team_b_id,
-               boards_a, boards_b, played
+               winner_team_id::text as winner_team_id, coins, red_to_winner, played
           from carrom_matches
          where tournament = %s
          order by match_no
     """
+    STAGE_SELECT = "select stage, super_six_seed from carrom_stage where tournament = %s"
     DRAW_SELECT = """
         select seed, created_at
           from carrom_draws
@@ -108,10 +116,12 @@ class PostgresStore:
     """
     MATCH_INSERT = """
         insert into carrom_matches
-               (id, tournament, match_no, group_code, "round",
-                team_a_id, team_b_id, boards_a, boards_b, played)
-        values (%(id)s, %(tournament)s, %(match_no)s, %(group_code)s, %(round)s,
-                %(team_a_id)s, %(team_b_id)s, %(boards_a)s, %(boards_b)s, %(played)s)
+               (id, tournament, match_no, stage, slot, group_code, "round",
+                team_a_id, team_b_id, winner_team_id, coins, red_to_winner, played)
+        values (%(id)s, %(tournament)s, %(match_no)s, %(stage)s, %(slot)s,
+                %(group_code)s, %(round)s,
+                %(team_a_id)s, %(team_b_id)s, %(winner_team_id)s, %(coins)s,
+                %(red_to_winner)s, %(played)s)
     """
 
     def __init__(self) -> None:
@@ -145,6 +155,7 @@ class PostgresStore:
             teams = conn.execute(self.TEAM_SELECT, (self.slug,)).fetchall()
             matches = conn.execute(self.MATCH_SELECT, (self.slug,)).fetchall()
             draws = conn.execute(self.DRAW_SELECT, (self.slug,)).fetchall()
+            stage_rows = conn.execute(self.STAGE_SELECT, (self.slug,)).fetchall()
 
         draw = None
         if draws:
@@ -153,11 +164,89 @@ class PostgresStore:
                 "seed": draws[0]["seed"],
                 "created_at": created.isoformat() if hasattr(created, "isoformat") else str(created),
             }
+        stage_row = stage_rows[0] if stage_rows else {}
         return {
             "teams": [_pick(row, TEAM_COLUMNS) for row in teams],
             "matches": [_pick(row, MATCH_COLUMNS) for row in matches],
             "draw": draw,
+            "stage": stage_row.get("stage") or "league",
+            "super_six_seed": stage_row.get("super_six_seed"),
         }
+
+    def set_stage(self, stage: str, super_six_seed: str | None = None) -> dict[str, Any]:
+        with self.pool.connection() as conn:
+            conn.execute(
+                "insert into carrom_stage (tournament, stage, super_six_seed, updated_at)"
+                " values (%s, %s, %s, now())"
+                " on conflict (tournament) do update"
+                "   set stage = excluded.stage,"
+                "       super_six_seed = coalesce(excluded.super_six_seed, carrom_stage.super_six_seed),"
+                "       updated_at = now()",
+                (self.slug, stage, super_six_seed),
+            )
+        return self.load()
+
+    def save_super_six(
+        self,
+        seed: str,
+        assignments: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Write the Super Six draw and its fixtures in one transaction. The
+        league's own matches and group placings are never touched."""
+        with self.pool.connection() as conn:
+            conn.execute(
+                "delete from carrom_matches where tournament = %s and stage in ('super_six', 'playoffs')",
+                (self.slug,),
+            )
+            conn.execute(
+                "update carrom_teams set super_group_code = null, super_position = null,"
+                " super_origin = null where tournament = %s",
+                (self.slug,),
+            )
+            if assignments:
+                conn.cursor().executemany(
+                    "update carrom_teams"
+                    "   set super_group_code = %(super_group_code)s,"
+                    "       super_position = %(super_position)s,"
+                    "       super_origin = %(super_origin)s"
+                    " where tournament = %(tournament)s and id = %(team_id)s",
+                    [{**a, "tournament": self.slug} for a in assignments],
+                )
+            if matches:
+                conn.cursor().executemany(
+                    self.MATCH_INSERT,
+                    [{**m, "tournament": self.slug} for m in matches],
+                )
+        return self.set_stage("super_six", seed)
+
+    def save_playoffs(self, matches: list[dict[str, Any]]) -> dict[str, Any]:
+        with self.pool.connection() as conn:
+            conn.execute(
+                "delete from carrom_matches where tournament = %s and stage = 'playoffs'",
+                (self.slug,),
+            )
+            if matches:
+                conn.cursor().executemany(
+                    self.MATCH_INSERT,
+                    [{**m, "tournament": self.slug} for m in matches],
+                )
+        return self.set_stage("playoffs")
+
+    def drop_stage(self, stage: str) -> dict[str, Any]:
+        """Undo a stage: remove its fixtures, and any Super Six placings."""
+        with self.pool.connection() as conn:
+            conn.execute(
+                "delete from carrom_matches where tournament = %s and stage = %s",
+                (self.slug, stage),
+            )
+            if stage == "super_six":
+                conn.execute(
+                    "update carrom_teams set super_group_code = null, super_position = null,"
+                    " super_origin = null where tournament = %s",
+                    (self.slug,),
+                )
+        return self.load()
 
     def _wipe_draw(self, conn) -> None:
         """Remove the fixtures and undo the group allocation, keeping the teams."""
@@ -224,19 +313,24 @@ class PostgresStore:
         return self.load()
 
     def update_match(
-        self, match_id: str, boards_a: int | None, boards_b: int | None
+        self,
+        match_id: str,
+        winner_team_id: str | None,
+        coins: int | None,
+        red_to_winner: bool,
     ) -> dict[str, Any] | None:
-        played = boards_a is not None and boards_b is not None
+        played = winner_team_id is not None
         with self.pool.connection() as conn:
             try:
                 row = conn.execute(
                     "update carrom_matches"
-                    "   set boards_a = %s, boards_b = %s, played = %s"
+                    "   set winner_team_id = %s, coins = %s, red_to_winner = %s, played = %s"
                     " where tournament = %s and id = %s"
                     " returning id::text as id",
                     (
-                        boards_a if played else None,
-                        boards_b if played else None,
+                        winner_team_id,
+                        coins if played else None,
+                        bool(red_to_winner) if played else False,
                         played,
                         self.slug,
                         match_id,
@@ -319,17 +413,81 @@ class LocalJsonStore:
             self._write(state)
             return state
 
+    def set_stage(self, stage: str, super_six_seed: str | None = None) -> dict[str, Any]:
+        with self._lock:
+            state = self._read()
+            state["stage"] = stage
+            if super_six_seed is not None:
+                state["super_six_seed"] = super_six_seed
+            self._write(state)
+            return state
+
+    def save_super_six(
+        self,
+        seed: str,
+        assignments: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        with self._lock:
+            state = self._read()
+            by_team = {a["team_id"]: a for a in assignments}
+            state["teams"] = [
+                {
+                    **team,
+                    "super_group_code": by_team.get(team["id"], {}).get("super_group_code"),
+                    "super_position": by_team.get(team["id"], {}).get("super_position"),
+                    "super_origin": by_team.get(team["id"], {}).get("super_origin"),
+                }
+                for team in state["teams"]
+            ]
+            state["matches"] = [
+                m for m in state["matches"] if m.get("stage", "league") == "league"
+            ] + matches
+            state["stage"] = "super_six"
+            state["super_six_seed"] = seed
+            self._write(state)
+            return state
+
+    def save_playoffs(self, matches: list[dict[str, Any]]) -> dict[str, Any]:
+        with self._lock:
+            state = self._read()
+            state["matches"] = [
+                m for m in state["matches"] if m.get("stage", "league") != "playoffs"
+            ] + matches
+            state["stage"] = "playoffs"
+            self._write(state)
+            return state
+
+    def drop_stage(self, stage: str) -> dict[str, Any]:
+        with self._lock:
+            state = self._read()
+            state["matches"] = [
+                m for m in state["matches"] if m.get("stage", "league") != stage
+            ]
+            if stage == "super_six":
+                state["teams"] = [
+                    {**t, "super_group_code": None, "super_position": None, "super_origin": None}
+                    for t in state["teams"]
+                ]
+            self._write(state)
+            return state
+
     def update_match(
-        self, match_id: str, boards_a: int | None, boards_b: int | None
+        self,
+        match_id: str,
+        winner_team_id: str | None,
+        coins: int | None,
+        red_to_winner: bool,
     ) -> dict[str, Any] | None:
         with self._lock:
             state = self._read()
             target = next((m for m in state["matches"] if m["id"] == match_id), None)
             if target is None:
                 return None
-            played = boards_a is not None and boards_b is not None
-            target["boards_a"] = boards_a if played else None
-            target["boards_b"] = boards_b if played else None
+            played = winner_team_id is not None
+            target["winner_team_id"] = winner_team_id
+            target["coins"] = coins if played else None
+            target["red_to_winner"] = bool(red_to_winner) if played else False
             target["played"] = played
             self._write(state)
             return target
@@ -367,14 +525,66 @@ class SupabaseStore:
             self._scoped("carrom_draws").order("created_at", desc=True).limit(1).execute().data
             or []
         )
+        stages = self._scoped("carrom_stage").limit(1).execute().data or []
         draw = None
         if draws:
             draw = {"seed": draws[0]["seed"], "created_at": str(draws[0]["created_at"])}
+        stage_row = stages[0] if stages else {}
         return {
             "teams": [_pick(row, TEAM_COLUMNS) for row in teams],
             "matches": [_pick(row, MATCH_COLUMNS) for row in matches],
             "draw": draw,
+            "stage": stage_row.get("stage") or "league",
+            "super_six_seed": stage_row.get("super_six_seed"),
         }
+
+    def set_stage(self, stage: str, super_six_seed: str | None = None) -> dict[str, Any]:
+        row = {"tournament": self.slug, "stage": stage}
+        if super_six_seed is not None:
+            row["super_six_seed"] = super_six_seed
+        self._table("carrom_stage").upsert(row, on_conflict="tournament").execute()
+        return self.load()
+
+    def save_super_six(
+        self,
+        seed: str,
+        assignments: list[dict[str, Any]],
+        matches: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        table = self._table("carrom_matches")
+        for stage in ("super_six", "playoffs"):
+            table.delete().eq("tournament", self.slug).eq("stage", stage).execute()
+        self._table("carrom_teams").update(
+            {"super_group_code": None, "super_position": None, "super_origin": None}
+        ).eq("tournament", self.slug).execute()
+        for assignment in assignments:
+            self._table("carrom_teams").update(
+                {
+                    "super_group_code": assignment["super_group_code"],
+                    "super_position": assignment["super_position"],
+                    "super_origin": assignment["super_origin"],
+                }
+            ).eq("tournament", self.slug).eq("id", assignment["team_id"]).execute()
+        if matches:
+            table.insert(self._stamp(matches)).execute()
+        return self.set_stage("super_six", seed)
+
+    def save_playoffs(self, matches: list[dict[str, Any]]) -> dict[str, Any]:
+        table = self._table("carrom_matches")
+        table.delete().eq("tournament", self.slug).eq("stage", "playoffs").execute()
+        if matches:
+            table.insert(self._stamp(matches)).execute()
+        return self.set_stage("playoffs")
+
+    def drop_stage(self, stage: str) -> dict[str, Any]:
+        self._table("carrom_matches").delete().eq("tournament", self.slug).eq(
+            "stage", stage
+        ).execute()
+        if stage == "super_six":
+            self._table("carrom_teams").update(
+                {"super_group_code": None, "super_position": None, "super_origin": None}
+            ).eq("tournament", self.slug).execute()
+        return self.load()
 
     def _wipe_draw(self) -> None:
         for table in ("carrom_matches", "carrom_draws"):
@@ -419,15 +629,20 @@ class SupabaseStore:
         return self.load()
 
     def update_match(
-        self, match_id: str, boards_a: int | None, boards_b: int | None
+        self,
+        match_id: str,
+        winner_team_id: str | None,
+        coins: int | None,
+        red_to_winner: bool,
     ) -> dict[str, Any] | None:
-        played = boards_a is not None and boards_b is not None
+        played = winner_team_id is not None
         result = (
             self._table("carrom_matches")
             .update(
                 {
-                    "boards_a": boards_a if played else None,
-                    "boards_b": boards_b if played else None,
+                    "winner_team_id": winner_team_id,
+                    "coins": coins if played else None,
+                    "red_to_winner": bool(red_to_winner) if played else False,
                     "played": played,
                 }
             )

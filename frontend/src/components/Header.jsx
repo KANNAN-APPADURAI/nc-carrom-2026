@@ -11,7 +11,8 @@ function Stat({ value, label, tone }) {
 
 export default function Header({ state }) {
   const stats = state?.stats ?? { players: 0, teams: 0, matches: 0, played: 0 }
-  const target = state?.target_teams ?? 25
+  const stage = state?.stage_label ?? 'League Stage'
+  const alive = state?.super_six?.drawn ? 12 : stats.teams
 
   return (
     <header className="header">
@@ -26,17 +27,13 @@ export default function Header({ state }) {
       <p className="header__kicker">{state?.subtitle ?? 'nCompass Carrom Tournament'}</p>
       <h1 className="header__title">
         NC Carrom <span className="header__year">2026</span>
-        <span className="header__dash">–</span>
-        <span className="header__highlight">Team Selection!</span>
       </h1>
-      <p className="header__tagline">
-        Lots drawn on paper · {target} doubles teams · 5 groups · one striker to rule them all
-      </p>
+      <p className="header__stage">{stage}</p>
 
       <div className="header__stats">
-        <Stat value={`${stats.teams}/${target}`} label="Teams in" />
+        <Stat value={stats.teams} label="Teams" />
         <Stat value={stats.players} label="Players" />
-        <Stat value={5} label="Groups" />
+        <Stat value={alive} label="Still standing" />
         <Stat value={`${stats.played}/${stats.matches}`} label="Matches played" tone="accent" />
       </div>
     </header>

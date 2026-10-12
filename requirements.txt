@@ -1,0 +1,6 @@
+# Used by Vercel for the API function (api/index.py). Keep in step with backend/requirements.txt.
+fastapi==0.115.6
+uvicorn[standard]==0.34.0
+pydantic==2.10.4
+python-dotenv==1.0.1
+psycopg[binary,pool]==3.2.3

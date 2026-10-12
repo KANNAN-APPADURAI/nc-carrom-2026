@@ -13,7 +13,7 @@ SCHEMA_PATH = PROJECT_DIR / "db" / "schema.sql"
 
 load_dotenv(BASE_DIR / ".env")
 
-TITLE = "NC Carrom 2026 – Team Selection!"
+TITLE = "NC Carrom 2026 – Road to the Red"
 SUBTITLE = "nCompass Carrom Tournament"
 
 TOURNAMENT_SLUG = os.getenv("TOURNAMENT_SLUG", "nc-carrom-2026").strip()
@@ -33,6 +33,11 @@ LOCAL_DB_PATH = BASE_DIR / "data" / "tournament.json"
 AUTH_USERNAME = os.getenv("AUTH_USERNAME", "").strip()
 AUTH_PASSWORD = os.getenv("AUTH_PASSWORD", "")
 
+# A second, read-only account. Anyone signed in with it sees every screen and
+# can change nothing - no results, no draws, no stage changes.
+VIEWER_USERNAME = os.getenv("VIEWER_USERNAME", "").strip()
+VIEWER_PASSWORD = os.getenv("VIEWER_PASSWORD", "")
+
 # Signs the session tokens. Leave it unset and a random one is made per
 # process, which signs everyone out whenever the API restarts.
 SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip()
@@ -50,14 +55,17 @@ CORS_ORIGINS = [
     if origin.strip()
 ]
 
-# The tournament shape the event is built around: 25 teams of 2, five per group.
-# The draw still works for a smaller turnout - groups simply end up uneven.
+# The shape of the event: 25 teams of 2, five per group, then twelve of them
+# into two Super Six groups, then the four-match run-in.
 TARGET_TEAMS = 25
-MIN_TEAMS = 10
 
 
 def auth_enabled() -> bool:
     return bool(AUTH_USERNAME and AUTH_PASSWORD)
+
+
+def viewer_enabled() -> bool:
+    return bool(VIEWER_USERNAME and VIEWER_PASSWORD)
 
 
 def postgres_enabled() -> bool:

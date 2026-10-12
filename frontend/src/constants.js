@@ -10,11 +10,19 @@ export const GROUP_STYLES = {
 
 export const groupStyle = (code) => GROUP_STYLES[code] ?? GROUP_STYLES.A
 
-// Best of 3 boards per tie.
-export const MAX_BOARDS = 3
-
 // Top two of each group go through to the knockouts.
 export const QUALIFY_COUNT = 2
+
+// What the red (queen) is worth in the PD, when the WINNER pockets it.
+// Keep this in step with QUEEN_POINTS in backend/app/domain.py.
+export const QUEEN_POINTS = 5
+
+/** Shows a signed score the way it is written on a scoresheet: +8, -8, 0. */
+export const signed = (value) => {
+  const number = Number(value)
+  if (!Number.isFinite(number) || number === 0) return '0'
+  return number > 0 ? `+${number}` : `${number}`
+}
 
 // Only for the "Fill sample teams" button, to try the site out.
 export const DEMO_TEAMS = [
