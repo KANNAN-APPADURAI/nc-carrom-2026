@@ -19,3 +19,6 @@ frontend/.env
 .idea/
 Thumbs.db
 .DS_Store
+
+# files saved by Claude
+Claude outputs/

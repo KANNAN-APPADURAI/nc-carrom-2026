@@ -94,7 +94,7 @@ export default function SignIn({ onSignIn }) {
         </button>
 
         <p className="signin__foot">
-          No accounts to create — the login lives in <code>backend\.env</code>.
+          
         </p>
       </form>
     </div>
