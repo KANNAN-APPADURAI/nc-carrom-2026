@@ -30,18 +30,23 @@ group and **50 in all**.
 Twelve teams go through: **all five group winners, all five runners-up, and the
 best two third-placed teams** (on points, then PD).
 
-They split so that a league group's top two are *never* drawn together again:
+Which of the two groups each one lands in was **drawn on paper lots in the
+room**, the same way the partners and the league groups were. The app draws
+nothing here: the entry numbers that came out of the bag are written down as
+`SUPER_SIX_ENTRIES` in [`backend/app/domain.py`](backend/app/domain.py), and the
+names are looked up from `carrom_teams`.
 
-- Three of the five groups are drawn at random. Those three send their **winner
-  to Foxtrot** and their **runner-up to Golf**.
-- The other two do the reverse — **winner to Golf**, **runner-up to Foxtrot**.
-- The **best** third-placed team goes to Golf; the **second best** to Foxtrot,
-  which balances Foxtrot's extra group winner.
+| Group | Call sign | Entry numbers, in the order they were pulled |
+| ----- | --------- | -------------------------------------------- |
+| F | Foxtrot | 8 · 9 · 16 · 2 · 5 · 21 |
+| G | Golf    | 15 · 10 · 17 · 24 · 25 · 19 |
 
-| Group | Call sign | Make-up |
-| ----- | --------- | ------- |
-| F | Foxtrot | 3 winners · 2 runners-up · 2nd best 3rd |
-| G | Golf    | 2 winners · 3 runners-up · best 3rd |
+The Super Six tab shows that line-up by name before the stage opens, so the
+slips on the table can be checked against the board.
+
+Because the twelve are already settled, **Lock in the Super Six** does not wait
+for the last league match — useful when what is left is a dead rubber. Anything
+still unplayed is frozen unplayed.
 
 Each group plays a full round robin — 15 matches apiece, 30 in total.
 
@@ -123,7 +128,7 @@ SESSION_HOURS=12
 | --- | --- | --- |
 | Tables, fixtures, Super Six, bracket, podium | yes | yes |
 | Enter or clear a result | yes | **no** |
-| Draw the Super Six, open the playoffs, roll back | yes | **no** |
+| Open the Super Six, open the playoffs, roll back | yes | **no** |
 
 A viewer's session is marked **view only** at the top right, every Save and
 Clear button disappears, and the API answers **403** to anything that writes —
@@ -190,15 +195,15 @@ Each stage has to be finished before the next opens, and once you move on, the
 one behind is **frozen** — its results can no longer be edited and its tab shows
 a frozen badge.
 
-1. **League Stage** — play all 50. When they are in, the Super Six tab shows the
-   third-place table and unlocks **Draw the Super Six**.
-2. **Super Six** — the draw deals Foxtrot and Golf and builds 30 fixtures. Play
-   them all, then **Freeze & open the playoffs**.
+1. **League Stage** — play all 50 (or all that matter). The Super Six tab shows
+   the third-place table and the twelve seats as they were drawn.
+2. **Super Six** — **Lock in the Super Six** freezes the league, seats Foxtrot and
+   Golf and builds 30 fixtures. Play them all, then **Freeze & open the playoffs**.
 3. **Playoffs** — the bracket fills itself in as results land. Win the final and
    the champions are crowned on screen.
 
-Both draws take an optional **seed**. Announce it to the room before you press
-the button and anyone can reproduce the identical draw afterwards.
+Only the league draw was made by the app. The Super Six is recorded as
+`ROOM LOTS` instead of a seed, because it came out of a bag.
 
 ### If you advance by mistake
 
@@ -309,9 +314,10 @@ Interactive docs while the API runs: **http://127.0.0.1:8000/docs**
 
 ### The draws
 
-Both draws seed a `random.Random` from an announceable string, so either can be
-replayed and checked afterwards. Fixtures use the circle method, which gives a
-5-team group 5 rounds of 2 matches and a 6-team group 5 rounds of 3.
+The league draw seeded a `random.Random` from an announceable string, so it can
+be replayed and checked afterwards. The Super Six was never drawn in code at
+all — see `SUPER_SIX_ENTRIES` above. Fixtures use the circle method, which gives
+a 5-team group 5 rounds of 2 matches and a 6-team group 5 rounds of 3.
 
 Playoff fixtures store no team ids at all — who is playing whom is worked out
 from the Super Six tables and the results already entered, every time the state

@@ -10,6 +10,10 @@ export const GROUP_STYLES = {
 
 export const groupStyle = (code) => GROUP_STYLES[code] ?? GROUP_STYLES.A
 
+// What the backend stores instead of a seed, because the Super Six groups
+// came out of a bag in the room rather than out of a random number.
+export const HAND_DRAWN = 'ROOM LOTS'
+
 // Top two of each group go through to the knockouts.
 export const QUALIFY_COUNT = 2
 

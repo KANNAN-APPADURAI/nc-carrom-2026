@@ -126,54 +126,37 @@ export function Slot({ label, row, settled, accent, badge, note, out }) {
   )
 }
 
-/** The two Super Six groups as empty seats, before the draw deals them. */
-export function SuperSixShells() {
-  const shells = [
-    {
-      code: 'F',
-      name: 'Foxtrot',
-      seats: [
-        'a group winner',
-        'a group winner',
-        'a group winner',
-        'a runner-up',
-        'a runner-up',
-        '2nd best 3rd',
-      ],
-    },
-    {
-      code: 'G',
-      name: 'Golf',
-      seats: [
-        'a runner-up',
-        'a runner-up',
-        'a runner-up',
-        'a group winner',
-        'a group winner',
-        'best 3rd',
-      ],
-    },
-  ]
+/**
+ * The two Super Six groups exactly as they were drawn on paper in the room,
+ * shown before the stage opens so the slips can be checked against the board.
+ */
+export function SuperSixShells({ plan = [] }) {
+  if (!plan.length) return null
 
   return (
     <div className="shells">
-      {shells.map((shell) => (
+      {plan.map((group) => (
         <div
-          key={shell.code}
+          key={group.code}
           className="shells__col"
-          style={{ '--accent': groupStyle(shell.code).color }}
+          style={{ '--accent': groupStyle(group.code).color }}
         >
           <h4>
-            Group {shell.code} · {shell.name}
+            Group {group.code} · {group.name}
           </h4>
           <ul>
-            {shell.seats.map((seat, index) => (
-              <li key={index}>
-                <span className="shells__code">
-                  {shell.code}
-                  {index + 1}
-                </span>
-                <span className="shells__seat">{seat}</span>
+            {group.seats.map((seat) => (
+              <li key={seat.code} className={seat.team_id ? 'is-named' : ''}>
+                <span className="shells__code">{seat.code}</span>
+                <span className="shells__entry">#{seat.entry_no}</span>
+                {seat.team_id ? (
+                  <span className="shells__team">
+                    <strong>{seat.players.join(' & ')}</strong>
+                    <em>{seat.origin ?? seat.league_code}</em>
+                  </span>
+                ) : (
+                  <span className="shells__seat">no entry {seat.entry_no} on the sheet</span>
+                )}
               </li>
             ))}
           </ul>

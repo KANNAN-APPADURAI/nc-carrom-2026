@@ -30,6 +30,7 @@ from .domain import (
     podium,
     resolve_playoffs,
     select_super_six,
+    super_six_plan,
     third_placed_table,
 )
 from .schemas import (
@@ -37,7 +38,6 @@ from .schemas import (
     LoginPayload,
     ResultPayload,
     Session,
-    SuperSixPayload,
     TournamentState,
 )
 from .store import get_store
@@ -87,6 +87,7 @@ def present(raw: dict[str, Any], principal: dict[str, str] | None = None) -> dic
     super_complete = super_total > 0 and super_played == super_total
 
     playoff_rows = [m for m in matches if m.get("stage") == STAGE_PLAYOFFS]
+    stored = [m for m in matches if m.get("stage") != STAGE_PLAYOFFS]
     playoffs = resolve_playoffs(super_groups, playoff_rows)
     places = podium(playoffs)
     champion = places["champion"]
@@ -145,6 +146,9 @@ def present(raw: dict[str, Any], principal: dict[str, str] | None = None) -> dic
         "super_six": {
             "groups": super_groups,
             "seed": raw.get("super_six_seed"),
+            # The twelve seats as they were drawn in the room, named from
+            # the entry numbers. Shown before the stage opens too.
+            "plan": super_six_plan(teams, league_groups),
             "played": super_played,
             "total": super_total,
             "complete": super_complete,
@@ -155,8 +159,14 @@ def present(raw: dict[str, Any], principal: dict[str, str] | None = None) -> dic
         "stats": {
             "teams": len(teams),
             "players": len(teams) * 2,
-            "matches": len(matches),
-            "played": sum(1 for m in matches if m.get("played")),
+            # The four playoff ties count towards the total from the start,
+            # even before the stage opens and gives them rows of their own -
+            # so the header reads 50 + 30 + 4, not 80.
+            "matches": len(stored) + len(playoffs),
+            "played": (
+                sum(1 for m in stored if m.get("played"))
+                + sum(1 for p in playoffs if p.get("played"))
+            ),
         },
     }
 
@@ -250,10 +260,8 @@ def delete_draw(editor: dict = Depends(auth.require_editor)) -> dict[str, Any]:
 
 
 @app.post("/api/stage/super-six", response_model=TournamentState)
-def open_super_six(
-    payload: SuperSixPayload | None = None, editor: dict = Depends(auth.require_editor)
-) -> dict[str, Any]:
-    """Freeze the league and draw the two Super Six groups."""
+def open_super_six(editor: dict = Depends(auth.require_editor)) -> dict[str, Any]:
+    """Freeze the league and seat the Super Six groups drawn in the room."""
     store = get_store()
     raw = store.load()
     state = present(raw)
@@ -261,18 +269,16 @@ def open_super_six(
     if raw.get("stage") not in (STAGE_LEAGUE, None):
         raise HTTPException(
             status_code=409,
-            detail="The Super Six has already been drawn. Roll it back first if you need to redraw.",
+            detail="The Super Six is already set. Roll it back first if it has to change.",
         )
-    if not state["league"]["complete"]:
-        remaining = state["league"]["total"] - state["league"]["played"]
-        raise HTTPException(
-            status_code=400,
-            detail=f"{remaining} league match(es) still to play. Finish the group stage first.",
-        )
+    # The twelve teams were drawn on paper, so an unplayed league match cannot
+    # change who goes through - a dead rubber between two eliminated teams is
+    # no reason to hold the tournament up. Whatever is left unplayed is frozen
+    # as it stands.
 
     try:
         seed, assignments = select_super_six(
-            state["league"]["groups"], payload.seed if payload else None
+            raw.get("teams") or [], state["league"]["groups"]
         )
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
@@ -291,7 +297,7 @@ def open_playoffs(editor: dict = Depends(auth.require_editor)) -> dict[str, Any]
     state = present(raw)
 
     if raw.get("stage") == STAGE_LEAGUE:
-        raise HTTPException(status_code=400, detail="Draw the Super Six first.")
+        raise HTTPException(status_code=400, detail="Open the Super Six first.")
     if raw.get("stage") in (STAGE_PLAYOFFS, STAGE_DONE):
         raise HTTPException(status_code=409, detail="The playoffs are already under way.")
     if not state["super_six"]["complete"]:

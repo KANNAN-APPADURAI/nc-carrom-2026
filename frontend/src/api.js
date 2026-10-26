@@ -49,9 +49,9 @@ export const api = {
 
   getState: () => request('/state'),
 
-  // The teams and the league draw are settled; the API refuses to change them.
-  drawSuperSix: (seed) =>
-    request('/stage/super-six', { method: 'POST', body: { seed: seed || null } }),
+  // The teams, the league draw and the Super Six groups are all settled on
+  // paper; the API refuses to change the first two and only seats the third.
+  lockSuperSix: () => request('/stage/super-six', { method: 'POST' }),
   openPlayoffs: () => request('/stage/playoffs', { method: 'POST' }),
   rollbackStage: () => request('/stage/rollback', { method: 'POST' }),
   /** winnerTeamId of null clears the result. */

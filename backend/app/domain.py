@@ -286,6 +286,20 @@ def build_groups(
 # Super Six
 # --------------------------------------------------------------------------
 
+# The Super Six groups were drawn on paper lots in the room, the same way the
+# partners and the league groups were. These are the entry numbers that came
+# out of the bag, in the order they were pulled - the app only looks the names
+# up and seats them. Nothing here is random.
+SUPER_SIX_ENTRIES: dict[str, list[int]] = {
+    "F": [8, 9, 16, 2, 5, 21],
+    "G": [15, 10, 17, 24, 25, 19],
+}
+
+# There is no seed to replay: this draw happened on paper, not in code.
+HAND_DRAWN = "ROOM LOTS"
+
+ORDINALS = {1: "winner", 2: "runner-up", 3: "3rd place", 4: "4th place", 5: "5th place"}
+
 
 def third_placed_table(league_groups: list[dict[str, Any]]) -> list[dict[str, Any]]:
     """Every group's third-placed team, best first, on points then PD."""
@@ -298,64 +312,98 @@ def third_placed_table(league_groups: list[dict[str, Any]]) -> list[dict[str, An
     return rows
 
 
-def select_super_six(
-    league_groups: list[dict[str, Any]], seed: str | None = None
-) -> tuple[str, list[dict[str, Any]]]:
-    """Split the twelve qualifiers into Foxtrot and Golf.
+def league_origins(league_groups: list[dict[str, Any]]) -> dict[str, str]:
+    """How each team finished its league group, as one line for its card.
 
-    Three groups are drawn at random. Those three send their winner to Foxtrot
-    and their runner-up to Golf; the other two do the opposite. So a league
-    group's top two are always kept apart - they never meet again. The best
-    third-placed team goes to Golf, the second best to Foxtrot, which balances
-    Foxtrot's extra group winner.
-
-    Returns (seed, assignments) where each assignment carries the team id, its
-    Super Six group, its seat in that group and a note of how it got there.
+    A group nobody has played yet is skipped: its standings are only the draw
+    order, and calling a team the winner of it would be a lie on the board.
     """
-    seed = (seed or new_seed()).strip().upper()
-    rng = random.Random(f"nc-carrom-supersix::{seed}")
+    thirds = {
+        row["team_id"]: index
+        for index, row in enumerate(third_placed_table(league_groups))
+    }
+    origins: dict[str, str] = {}
+    for group in league_groups:
+        if not group.get("played"):
+            continue
+        for row in group["standings"]:
+            place = ORDINALS.get(row["rank"], f"{row['rank']}th place")
+            label = f"Group {group['code']} {place}"
+            if row["rank"] == 3:
+                seat = thirds.get(row["team_id"])
+                if seat == 0:
+                    label = f"Best 3rd (Group {group['code']})"
+                elif seat == 1:
+                    label = f"2nd best 3rd (Group {group['code']})"
+            origins[row["team_id"]] = label
+    return origins
 
-    by_code = {group["code"]: group for group in league_groups}
-    drawn = GROUP_CODES[:]
-    rng.shuffle(drawn)
-    winners_to_foxtrot = sorted(drawn[:3])
-    winners_to_golf = sorted(drawn[3:])
 
-    thirds = third_placed_table(league_groups)
-    if len(thirds) < 2:
-        raise ValueError("Need at least two third-placed teams to fill the Super Six.")
-    best_third, second_third = thirds[0], thirds[1]
+def super_six_plan(
+    teams: list[dict[str, Any]], league_groups: list[dict[str, Any]] | None = None
+) -> list[dict[str, Any]]:
+    """The hand-drawn Super Six as twelve named seats.
 
-    def placed(group_code: str, rank: int) -> dict[str, Any]:
-        standings = by_code[group_code]["standings"]
-        match = next((row for row in standings if row["rank"] == rank), None)
-        if match is None:
-            raise ValueError(f"Group {group_code} has no team in position {rank}.")
-        return {**match, "from_group": group_code, "from_name": by_code[group_code]["name"]}
+    Shown on the board before the stage opens, so the room can check the slips
+    against the screen, and used to seat the two groups when it does open.
+    """
+    by_entry = {team["entry_no"]: team for team in teams if team.get("entry_no") is not None}
+    origins = league_origins(league_groups or [])
 
-    foxtrot = (
-        [(placed(code, 1), f"Group {code} winner") for code in winners_to_foxtrot]
-        + [(placed(code, 2), f"Group {code} runner-up") for code in winners_to_golf]
-        + [(second_third, f"2nd best 3rd (Group {second_third['from_group']})")]
-    )
-    golf = (
-        [(placed(code, 2), f"Group {code} runner-up") for code in winners_to_foxtrot]
-        + [(placed(code, 1), f"Group {code} winner") for code in winners_to_golf]
-        + [(best_third, f"Best 3rd (Group {best_third['from_group']})")]
-    )
-
-    assignments: list[dict[str, Any]] = []
-    for super_code, entrants in (("F", foxtrot), ("G", golf)):
-        for position, (row, origin) in enumerate(entrants, start=1):
-            assignments.append(
+    plan = []
+    for code, name in SUPER_GROUPS:
+        seats = []
+        for position, entry_no in enumerate(SUPER_SIX_ENTRIES[code], start=1):
+            team = by_entry.get(entry_no)
+            seats.append(
                 {
-                    "team_id": row["team_id"],
-                    "super_group_code": super_code,
-                    "super_position": position,
-                    "super_origin": origin,
+                    "entry_no": entry_no,
+                    "position": position,
+                    "code": f"{code}{position}",
+                    "team_id": team["id"] if team else None,
+                    "league_code": team.get("code") if team else None,
+                    "players": [team["player1_name"], team["player2_name"]] if team else [],
+                    "origin": origins.get(team["id"]) if team else None,
                 }
             )
-    return seed, assignments
+        plan.append({"code": code, "name": name, "label": f"Group {code}", "seats": seats})
+    return plan
+
+
+def select_super_six(
+    teams: list[dict[str, Any]], league_groups: list[dict[str, Any]]
+) -> tuple[str, list[dict[str, Any]]]:
+    """Seat the twelve teams the room drew into Foxtrot and Golf.
+
+    Nothing is drawn here. ``SUPER_SIX_ENTRIES`` is what came out of the bag;
+    this turns those entry numbers into team ids and notes how each team
+    qualified, so the line-up on screen matches the slips on the table.
+    """
+    plan = super_six_plan(teams, league_groups)
+
+    assignments: list[dict[str, Any]] = []
+    missing: list[int] = []
+    for group in plan:
+        for seat in group["seats"]:
+            if seat["team_id"] is None:
+                missing.append(seat["entry_no"])
+                continue
+            assignments.append(
+                {
+                    "team_id": seat["team_id"],
+                    "super_group_code": group["code"],
+                    "super_position": seat["position"],
+                    "super_origin": seat["origin"] or f"Entry {seat['entry_no']}",
+                }
+            )
+
+    if missing:
+        numbers = ", ".join(str(number) for number in missing)
+        raise ValueError(f"No team was entered with number {numbers}.")
+    if len({a["team_id"] for a in assignments}) != len(assignments):
+        raise ValueError("The same team is listed twice in the Super Six groups.")
+
+    return HAND_DRAWN, assignments
 
 
 def build_super_six_fixtures(

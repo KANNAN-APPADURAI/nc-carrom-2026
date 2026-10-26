@@ -53,10 +53,6 @@ class DrawPayload(BaseModel):
         return seed.strip().upper() or None
 
 
-class SuperSixPayload(DrawPayload):
-    """Same shape as the league draw: an optional announceable seed."""
-
-
 class ResultPayload(BaseModel):
     """What the organiser saw at the board.
 

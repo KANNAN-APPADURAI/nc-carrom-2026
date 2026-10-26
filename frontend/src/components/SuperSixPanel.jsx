@@ -3,22 +3,21 @@ import Confetti from './Confetti.jsx'
 import FixturesPanel from './FixturesPanel.jsx'
 import GroupsPanel from './GroupsPanel.jsx'
 import QualificationBoard, { SuperSixShells } from './QualificationBoard.jsx'
-import { groupStyle } from '../constants'
+import { groupStyle, HAND_DRAWN } from '../constants'
 
 const SHUFFLE_MS = 1900
 const LINES = [
   'Sealing the league tables…',
-  'Drawing three groups out of five…',
-  'Keeping each group’s top two apart…',
-  'Weighing up the third-placed teams…',
+  'Reading the slips off the table…',
   'Seating Foxtrot and Golf…',
+  'Building thirty fixtures…',
 ]
 
 export default function SuperSixPanel({
   state,
   busy,
   readOnly,
-  onDraw,
+  onLockIn,
   onSaveResult,
   onOpenPlayoffs,
 }) {
@@ -28,8 +27,6 @@ export default function SuperSixPanel({
   const frozen = readOnly || state?.stage === 'playoffs' || state?.stage === 'done'
 
   const [phase, setPhase] = useState(superSix.drawn ? 'done' : 'idle')
-  const [seedInput, setSeedInput] = useState('')
-  const [showSeed, setShowSeed] = useState(false)
   const [line, setLine] = useState(0)
   const [confettiKey, setConfettiKey] = useState(0)
   const drawnRef = useRef(superSix.drawn)
@@ -48,16 +45,16 @@ export default function SuperSixPanel({
     return () => clearInterval(timer)
   }, [phase])
 
-  const runDraw = async () => {
+  const runLockIn = async () => {
     setPhase('drawing')
     setLine(0)
     const started = Date.now()
-    const next = await onDraw(seedInput.trim())
+    const next = await onLockIn()
     const wait = Math.max(0, SHUFFLE_MS - (Date.now() - started))
     setTimeout(() => setPhase(next?.super_six?.drawn ? 'done' : 'idle'), wait)
   }
 
-  // --- not drawn yet -------------------------------------------------------
+  // --- not seated yet ------------------------------------------------------
   if (!superSix.drawn) {
     const remaining = (league.total ?? 0) - (league.played ?? 0)
     return (
@@ -78,7 +75,7 @@ export default function SuperSixPanel({
 
           {phase === 'drawing' ? (
             <>
-              <h2 className="drawhero__title">Drawing the Super Six…</h2>
+              <h2 className="drawhero__title">Seating the Super Six…</h2>
               <p className="drawhero__status">{LINES[line]}</p>
             </>
           ) : (
@@ -86,66 +83,44 @@ export default function SuperSixPanel({
               <h2 className="drawhero__title">The Super Six</h2>
               <p className="drawhero__status">
                 {league.complete
-                  ? 'All 50 league matches are in. Twelve teams go through to Foxtrot and Golf.'
-                  : `${remaining} league match${remaining === 1 ? '' : 'es'} still to play.`}
+                  ? 'All 50 league matches are in. The twelve teams drawn in the room are seated below.'
+                  : `${remaining} league match${remaining === 1 ? '' : 'es'} still to play — if they are dead rubbers, go ahead.`}
               </p>
 
-              <div className="qualrules">
+              <div className="qualrules qualrules--single">
                 <div className="qualrules__col">
-                  <h4>Who goes through</h4>
+                  <h4>How the two groups were made</h4>
                   <ul>
-                    <li>All five group winners</li>
-                    <li>All five runners-up</li>
-                    <li>The best two third-placed teams, on points then PD</li>
-                  </ul>
-                </div>
-                <div className="qualrules__col">
-                  <h4>How they split</h4>
-                  <ul>
-                    <li>Three groups are drawn at random</li>
-                    <li>Those three send their winner to Foxtrot, their runner-up to Golf</li>
-                    <li>The other two do the reverse — so a group's top two never meet again</li>
-                    <li>Best 3rd to Golf, second best to Foxtrot</li>
+                    <li>All five group winners, all five runners-up and the best two thirds go through</li>
+                    <li>Foxtrot and Golf were drawn on paper lots in the room, entry number by entry number</li>
+                    <li>The app only looks those numbers up and keeps the scores — it draws nothing</li>
                   </ul>
                 </div>
               </div>
 
               <QualificationBoard league={league} />
-              <SuperSixShells />
+              <SuperSixShells plan={superSix.plan ?? []} />
 
               {readOnly ? (
                 <p className="readonly">
-                  The organiser will make this draw once the league is finished.
+                  The organiser will open the Super Six once the league is finished.
                 </p>
               ) : (
-                <button
-                  className="btn btn--primary btn--xl"
-                  disabled={!league.complete || busy}
-                  onClick={runDraw}
-                >
-                  🎲 Draw the Super Six
-                </button>
-              )}
-
-              {!readOnly && (
-                <button className="linkbtn" onClick={() => setShowSeed((value) => !value)}>
-                  {showSeed ? 'Hide' : 'Use a fixed seed (optional)'}
-                </button>
-              )}
-
-              {showSeed && !readOnly && (
-                <div className="seedbox">
-                  <input
-                    className="seedbox__input"
-                    value={seedInput}
-                    maxLength={24}
-                    placeholder="e.g. SUPERSIX26"
-                    onChange={(event) => setSeedInput(event.target.value.toUpperCase())}
-                  />
-                  <p className="seedbox__hint">
-                    Announce it before you draw and anyone can reproduce the exact same split.
-                  </p>
-                </div>
+                <>
+                  <button
+                    className="btn btn--primary btn--xl"
+                    disabled={busy}
+                    onClick={runLockIn}
+                  >
+                    🔒 Lock in the Super Six
+                  </button>
+                  {!league.complete && (
+                    <p className="drawhero__warn">
+                      The twelve are already drawn, so this does not wait for the league. Anything
+                      still unplayed is frozen unplayed.
+                    </p>
+                  )}
+                </>
               )}
             </>
           )}
@@ -162,8 +137,10 @@ export default function SuperSixPanel({
 
       <div className="drawstrip">
         <div className="drawstrip__main">
-          <span className="drawstrip__label">Super Six seed</span>
-          <span className="drawstrip__seed">{superSix.seed}</span>
+          <span className="drawstrip__label">Super Six draw</span>
+          <span className="drawstrip__seed">
+            {superSix.seed === HAND_DRAWN ? 'PAPER LOTS' : superSix.seed}
+          </span>
         </div>
         <div className="drawstrip__meta">
           <span>12 teams</span>

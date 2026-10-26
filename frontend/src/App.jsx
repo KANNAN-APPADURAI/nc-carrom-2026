@@ -229,7 +229,9 @@ export default function App() {
             state={state}
             busy={busy}
             readOnly={readOnly}
-            onDraw={(seed) => run(() => api.drawSuperSix(seed))}
+            onLockIn={() =>
+              run(() => api.lockSuperSix(), 'Super Six seated — Foxtrot and Golf are live.')
+            }
             onSaveResult={saveResult}
             onOpenPlayoffs={() =>
               run(() => api.openPlayoffs(), 'Super Six frozen — the bracket is set.')
